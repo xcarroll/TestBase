@@ -51,6 +51,15 @@ namespace TestBase.Tests.HttpContextTests
             uut.Url.Action("Index", "Home").ShouldEqual("/custom/Home-Index"); 
         }
 
+        [Test,Ignore("Can't yet do")]
+        public void Should_be_able_test_route_mapping()
+        {
+            var uut = new FakeController().WithHttpContextAndRoutes(RegisterFakeRoutes);
+            var rd = uut.Url.RouteCollection.GetRouteData(uut.HttpContext);
+            rd.Values.ShouldContain(new KeyValuePair<string, object>("Controller", "Fake"));
+
+        }
+
         static void RegisterFakeRoutes(RouteCollection routes)
         {
             routes.IgnoreRoute("{resource}.axd/{*pathInfo}");

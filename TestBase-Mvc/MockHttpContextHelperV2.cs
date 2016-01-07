@@ -12,7 +12,7 @@ namespace TestBase
 {
     public static class MockHttpContextHelper
     {
-        public static T WithHttpContextAndRoutes<T>(this T @this, Action<RouteCollection> mvcApplicationRoutesRegistration = null, string requestUrl = null, string query = "", string appVirtualPath = "/", HttpApplication applicationInstance = null) where T : Controller
+        public static T WithHttpContextAndRoutes<T>(this T @this, Action<RouteCollection> mvcApplicationRoutesRegistration = null, string requestUrl = null, string query = "", string appVirtualPath = "~/", HttpApplication applicationInstance = null) where T : Controller
         {
             string requestUrl1 = requestUrl ?? @this.GetType().Name;
             HttpApplication applicationInstance1 = applicationInstance??new HttpApplication();
@@ -25,19 +25,26 @@ namespace TestBase
 
         public static T WithHttpContextAndRoutes<T>(this T @this, HttpContextBase httpContextBase, Action<RouteCollection> mvcApplicationRoutesRegistration) where T : Controller
         {
-            var routes = new RouteCollection();
-            var routeData = routes.GetRouteData(httpContextBase) ?? new RouteData();
+            for (int i = RouteTable.Routes.Count; i > 0; i--)
+            {
+                RouteTable.Routes.RemoveAt(i-1);
+            }
+            var routes = RouteTable.Routes;
             mvcApplicationRoutesRegistration = mvcApplicationRoutesRegistration ?? TypicalMvcRouteConfig.RegisterRoutes;
             mvcApplicationRoutesRegistration(routes);
-            @this.Url = new UrlHelper(new RequestContext(httpContextBase, routeData), routes);
+            // this doesn't work. GetRouteData() and RequestContext have something like a circular dependency which needs more work to bottom out.
+            var routeData = routes.GetRouteData(httpContextBase) ?? new RouteData(); 
+            var requestContext = new RequestContext(httpContextBase, routeData);
+            @this.Url = new UrlHelper(requestContext, routes);
             @this.ControllerContext = new ControllerContext(httpContextBase, routeData, @this);
+            ((HttpRequestWrapperWrapper) httpContextBase.Request).requestContext = requestContext;
             return @this;
         }
 
         public static HttpContextBase MockHttpContextBase(HttpContext httpContext, string appVirtualDir = "/")
         {
             var context = new Mock<HttpContextBase>();
-            context.Setup(ctx => ctx.Request).Returns(new HttpRequestWrapper(httpContext.Request));
+            context.Setup(ctx => ctx.Request).Returns(new HttpRequestWrapperWrapper(httpContext.Request,appVirtualDir));
             context.Setup(ctx => ctx.Response).Returns(new HttpResponseWrapper(httpContext.Response));
             context.Setup(ctx => ctx.User).Returns(httpContext.User);
             context.Setup(ctx => ctx.Session).Returns(new HttpSessionStateWrapper(httpContext.Items["AspSession"] as HttpSessionState));
@@ -74,7 +81,7 @@ namespace TestBase
 
         public static HttpContext FakeHttpContext(string requestUrl, string query, string appVirtualDir, HttpApplication applicationInstance)
         {
-            var request = new HttpRequest("",
+            var request = new HttpRequest(Path.Combine(appVirtualDir, requestUrl), 
                                           new UriBuilder("http", "localhost", 80, appVirtualDir + requestUrl).Uri.ToString(),
                                           query);
 
@@ -104,5 +111,26 @@ namespace TestBase
                                                              .Invoke(new object[] { sessionContainer });
         }
 
+    }
+
+    public class HttpRequestWrapperWrapper : HttpRequestWrapper
+    {
+        readonly string appRelativeCurrentExecutionFilePath;
+        public RequestContext requestContext;
+
+        public HttpRequestWrapperWrapper(HttpRequest httpRequest, string appRelativeCurrentExecutionFilePath) : base(httpRequest)
+        {
+            this.appRelativeCurrentExecutionFilePath = appRelativeCurrentExecutionFilePath;
+        }
+
+        public override string AppRelativeCurrentExecutionFilePath
+        {
+            get { return appRelativeCurrentExecutionFilePath; }
+        }
+
+        public override RequestContext RequestContext
+        {
+            get { return requestContext; }
+        }
     }
 }
